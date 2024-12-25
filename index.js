@@ -35,29 +35,45 @@ async function run() {
     const foodCollection = client
       .db("FoodBridge")
       .collection("food_collection");
+    const requestedFoodCollection = client
+      .db("FoodBridge")
+      .collection("requested_foods");
 
-    // To load all foods
+    // Load all foods
     app.get("/foods", async (req, res) => {
       const cursor = foodCollection.find();
       const result = await cursor.toArray();
       res.send(result);
     });
-    // To get specific Food
+    // Get specific Food
     app.get("/foods/:id", async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await foodCollection.findOne(query);
       res.send(result);
     });
-    // Add a new Movie
+    // Add a new Food
     app.post("/foods", async (req, res) => {
       const newFood = req.body;
       const result = await foodCollection.insertOne(newFood);
       res.send(result);
     });
+    // Get Food of specific users
+    app.get("/manageFoods", async (req, res) => {
+      const email = req.query.email;
+      const query = {
+        userEmai: email,
+      };
+      const result = await foodCollection.find(query).toArray();
+      res.send(result);
+    });
 
-
-
+    // Get All Requested food
+    app.get("/requestedFoods", async (req, res) => {
+      const cursor = requestedFoodCollection.find();
+      const result = await cursor.toArray();
+      res.send(result);
+    });
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
