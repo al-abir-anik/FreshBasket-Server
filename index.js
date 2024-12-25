@@ -67,23 +67,38 @@ async function run() {
       const result = await foodCollection.find(query).toArray();
       res.send(result);
     });
-
-    // Get All Requested food
+    // Get Specific user Requested foods
     app.get("/requestedFoods", async (req, res) => {
       const cursor = requestedFoodCollection.find();
       const result = await cursor.toArray();
       res.send(result);
     });
-    // Delete a food 
+    // Update a Movie
+    app.put("/foods/:id", async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const options = { upsert: true };
+      const updatedFood = req.body;
+      const food = {
+        $set: {
+          foodName: updatedFood.foodName,
+          imageUrl: updatedFood.imageUrl,
+          quantity: updatedFood.quantity,
+          location: updatedFood.location,
+          expireDate: updatedFood.expireDate,
+          notes: updatedFood.notes,
+        },
+      };
+      const result = await foodCollection.updateOne(filter, food, options);
+      res.send(result);
+    });
+    // Delete a food
     app.delete("/foods/:id", async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await foodCollection.deleteOne(query);
       res.send(result);
     });
-
-
-
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
