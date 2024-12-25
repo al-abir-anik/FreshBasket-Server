@@ -74,6 +74,16 @@ async function run() {
       const result = await cursor.toArray();
       res.send(result);
     });
+    // Delete a food 
+    app.delete("/foods/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await foodCollection.deleteOne(query);
+      res.send(result);
+    });
+
+
+
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
