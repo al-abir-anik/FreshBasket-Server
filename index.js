@@ -59,10 +59,10 @@ async function run() {
       res.send(result);
     });
     // Get Food of specific users
-    app.get("/manageFoods", async (req, res) => {
+    app.get("/userFoods", async (req, res) => {
       const email = req.query.email;
       const query = {
-        userEmai: email,
+        userEmail: email,
       };
       const result = await foodCollection.find(query).toArray();
       res.send(result);
