@@ -100,8 +100,8 @@ async function run() {
     //   res.send(result);
     // });
 
-     // Add food to my Requested Foods
-     app.post("/favourites", async (req, res) => {
+    // Add food to my Requested Foods
+    app.post("/favourites", async (req, res) => {
       const { userEmail, movieId } = req.body;
       const movie = await movieCollection.findOne({
         _id: new ObjectId(movieId),
@@ -123,8 +123,6 @@ async function run() {
       res.send(result);
     });
     
-
-
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
