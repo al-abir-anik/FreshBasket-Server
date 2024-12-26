@@ -67,13 +67,7 @@ async function run() {
       const result = await foodCollection.find(query).toArray();
       res.send(result);
     });
-    // Get Specific user Requested foods
-    app.get("/requestedFoods", async (req, res) => {
-      const cursor = requestedFoodCollection.find();
-      const result = await cursor.toArray();
-      res.send(result);
-    });
-    // Update a Movie
+    // Update a Food
     app.put("/foods/:id", async (req, res) => {
       const id = req.params.id;
       const filter = { _id: new ObjectId(id) };
@@ -99,6 +93,38 @@ async function run() {
       const result = await foodCollection.deleteOne(query);
       res.send(result);
     });
+    // Get Specific user Requested foods
+    // app.get("/foodRequests", async (req, res) => {
+    //   const cursor = requestedFoodCollection.find();
+    //   const result = await cursor.toArray();
+    //   res.send(result);
+    // });
+
+     // Add food to my Requested Foods
+     app.post("/favourites", async (req, res) => {
+      const { userEmail, movieId } = req.body;
+      const movie = await movieCollection.findOne({
+        _id: new ObjectId(movieId),
+      });
+
+      // const existingFavorite = await favouriteCollection.findOne({
+      //   userEmail,
+      //   _id: new ObjectId(movieId),
+      // });
+
+      // if (existingFavorite) {
+      //   return res
+      //     .status(400)
+      //     .send({ message: "Movie is already in your favorites" });
+      // }
+
+      const favouriteMovie = { ...movie, userEmail };
+      const result = await favouriteCollection.insertOne(favouriteMovie);
+      res.send(result);
+    });
+    
+
+
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
