@@ -32,12 +32,10 @@ async function run() {
     );
 
     // Food Related APIs...............
-    const foodCollection = client
-      .db("FoodBridge")
-      .collection("food_collection");
+    const foodCollection = client.db("FoodBridge").collection("foods");
     const requestedFoodCollection = client
       .db("FoodBridge")
-      .collection("requested_foods");
+      .collection("requestedFoods");
 
     // Load all foods
     app.get("/foods", async (req, res) => {
@@ -93,35 +91,44 @@ async function run() {
       const result = await foodCollection.deleteOne(query);
       res.send(result);
     });
-    // Get Specific user Requested foods
-    // app.get("/foodRequests", async (req, res) => {
-    //   const cursor = requestedFoodCollection.find();
-    //   const result = await cursor.toArray();
-    //   res.send(result);
-    // });
 
-    // Add food to my Requested Foods
-    app.post("/favourites", async (req, res) => {
-      const { userEmail, movieId } = req.body;
-      const movie = await movieCollection.findOne({
-        _id: new ObjectId(movieId),
-      });
+    // Move a food to Requested_foods
+    app.post("/requestedFoods", async (req, res) => {
+      const id = req.body.id;
+      const userEmail = req.body.userEmail;
+      const requestDate = req.body.requestDate;
+      const updateNote = req.body.notes;
 
-      // const existingFavorite = await favouriteCollection.findOne({
-      //   userEmail,
-      //   _id: new ObjectId(movieId),
-      // });
+      const query = { _id: new ObjectId(id) };
+      const food = await foodCollection.findOne(query); 
 
-      // if (existingFavorite) {
-      //   return res
-      //     .status(400)
-      //     .send({ message: "Movie is already in your favorites" });
-      // }
+      // Remove the food from the available collection
+      // await foodCollection.deleteOne(query);
 
-      const favouriteMovie = { ...movie, userEmail };
-      const result = await favouriteCollection.insertOne(favouriteMovie);
+      // Add the food to the requested collection
+      const requestedFood = {
+        ...food,
+        userEmail,
+        notes: updateNote,
+        date: requestDate,
+        status: "requested",
+      };
+      const result = await requestedFoodCollection.insertOne(requestedFood);
+
       res.send(result);
     });
+
+    // Get Specific user Requested foods
+    app.get("/requestedFoods", async (req, res) => {
+      const email = req.query.email;
+      const query = {
+        userEmail: email,
+      };
+      const result = await requestedFoodCollection.find(query).toArray();
+
+      res.send(result);
+    });
+
     
   } finally {
     // Ensures that the client will close when you finish/error
