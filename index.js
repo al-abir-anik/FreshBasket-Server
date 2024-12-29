@@ -1,7 +1,7 @@
+require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const app = express();
-require("dotenv").config();
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const port = process.env.PORT || 5000;
 
@@ -24,9 +24,8 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
-    // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
+    // await client.connect();
+    // await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
     );
@@ -39,10 +38,27 @@ async function run() {
 
     // Load all foods
     app.get("/foods", async (req, res) => {
-      const cursor = foodCollection.find();
+      const sort = req.query.sort;
+      const search = req.query.search;
+      let sortQuery = {};
+      let query = {};
+      if (sort == "true") {
+        sortQuery = { expireDate: -1 };
+      }
+      if (search) {
+        query.foodName = { $regex: search, $options: "i" };
+      }
+      const cursor = foodCollection.find(query).sort(sortQuery);
       const result = await cursor.toArray();
       res.send(result);
     });
+    // Featured Foods sorting by quantity
+    app.get("/featuredFoods", async (req, res) => {
+      const cursor = foodCollection.find().sort({ quantity: -1 }).limit(6);
+      const result = await cursor.toArray();
+      res.send(result);
+    });
+
     // Get specific Food
     app.get("/foods/:id", async (req, res) => {
       const id = req.params.id;
@@ -94,13 +110,10 @@ async function run() {
 
     // Move a food to Requested_foods
     app.post("/requestedFoods", async (req, res) => {
-      const id = req.body.id;
-      const userEmail = req.body.userEmail;
-      const requestDate = req.body.requestDate;
-      const updateNote = req.body.notes;
+      const { id, userEmail, requestDate, notes } = req.body;
 
       const query = { _id: new ObjectId(id) };
-      const food = await foodCollection.findOne(query); 
+      const food = await foodCollection.findOne(query);
 
       // Remove the food from the available collection
       // await foodCollection.deleteOne(query);
@@ -109,12 +122,11 @@ async function run() {
       const requestedFood = {
         ...food,
         userEmail,
-        notes: updateNote,
-        date: requestDate,
+        notes,
+        requestDate,
         status: "requested",
       };
       const result = await requestedFoodCollection.insertOne(requestedFood);
-
       res.send(result);
     });
 
@@ -128,8 +140,6 @@ async function run() {
 
       res.send(result);
     });
-
-    
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
