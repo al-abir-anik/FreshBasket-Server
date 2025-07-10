@@ -3,16 +3,13 @@ const express = require("express");
 const cors = require("cors");
 const app = express();
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
-const port = process.env.PORT || 5000;
-
+const port = process.env.PORT || 3000;
 // Middlewires
 app.use(cors());
 app.use(express.json());
 
 // CONNECTION CODE START___
-const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@foodbridge-cluster.cxkdi.mongodb.net/?retryWrites=true&w=majority&appName=FoodBridge-Cluster`;
-
-// Create a MongoClient with a MongoClientOptions object to set the Stable API version
+const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@root-cluster.yqkit.mongodb.net/?retryWrites=true&w=majority&appName=root-Cluster`;
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
@@ -20,24 +17,23 @@ const client = new MongoClient(uri, {
     deprecationErrors: true,
   },
 });
-
 async function run() {
   try {
-    // Connect the client to the server	(optional starting in v4.7)
-    // await client.connect();
-    // await client.db("admin").command({ ping: 1 });
-    console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!"
-    );
+    await client.connect();
+    await client.db("admin").command({ ping: 1 });
 
-    // Food Related APIs...............
-    const foodCollection = client.db("FoodBridge").collection("foods");
-    const requestedFoodCollection = client
-      .db("FoodBridge")
-      .collection("requestedFoods");
+    // Collection Names
+    const productsCollection = client
+      .db("FreshBasket_DB")
+      .collection("all-products");
+    const userCartCollection = client
+      .db("FreshBasket_DB")
+      .collection("user-cartlist");
 
-    // Load all foods
-    app.get("/foods", async (req, res) => {
+    // ------------- PRODUCT APIS -------------------
+
+    // Load all products
+    app.get("/all-products", async (req, res) => {
       const sort = req.query.sort;
       const search = req.query.search;
       let sortQuery = {};
@@ -48,65 +44,98 @@ async function run() {
       if (search) {
         query.foodName = { $regex: search, $options: "i" };
       }
-      const cursor = foodCollection.find(query).sort(sortQuery);
-      const result = await cursor.toArray();
-      res.send(result);
-    });
-    // Featured Foods sorting by quantity
-    app.get("/featuredFoods", async (req, res) => {
-      const cursor = foodCollection.find().sort({ quantity: -1 }).limit(6);
+      const cursor = productsCollection.find(query).sort(sortQuery);
       const result = await cursor.toArray();
       res.send(result);
     });
 
-    // Get specific Food
-    app.get("/foods/:id", async (req, res) => {
+    // Get specific product
+    app.get("/product/:id", async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
-      const result = await foodCollection.findOne(query);
+      const result = await productsCollection.findOne(query);
       res.send(result);
     });
-    // Add a new Food
-    app.post("/foods", async (req, res) => {
-      const newFood = req.body;
-      const result = await foodCollection.insertOne(newFood);
+
+    // ------------- USER APIS -------------------
+
+    // post new user cart doc
+    app.post("/new-user", async (req, res) => {
+      const user = req.body;
+      const result = await userCartCollection.insertOne(user);
       res.send(result);
     });
-    // Get Food of specific users
-    app.get("/userFoods", async (req, res) => {
+
+    // load specific user cartlist
+    app.get("/user-cartlist", async (req, res) => {
       const email = req.query.email;
-      const query = {
-        userEmail: email,
-      };
-      const result = await foodCollection.find(query).toArray();
+      const userDoc = await userCartCollection.findOne({ email });
+      const productIds =
+        userDoc.cartlist.map((p) => new ObjectId(p.productId)) || [];
+      const productQuantity = new Map(
+        userDoc.cartlist.map((item) => [item.productId, item.quantity])
+      );
+
+      const products = await productsCollection
+        .find({ _id: { $in: productIds } })
+        .toArray();
+
+      const enrichedCart = products.map((product) => ({
+        ...product,
+        quantity: productQuantity.get(product._id.toString()),
+      }));
+      res.send(enrichedCart);
+    });
+
+    // add product in user cartlist
+    app.post("/add-to-cart", async (req, res) => {
+      const { email, productId, quantity = 1 } = req.body;
+
+      const result = await userCartCollection.updateOne(
+        { email },
+        { $push: { cartlist: { productId, quantity } } }
+      );
       res.send(result);
     });
-    // Update a Food
-    app.put("/foods/:id", async (req, res) => {
-      const id = req.params.id;
-      const filter = { _id: new ObjectId(id) };
-      const options = { upsert: true };
-      const updatedFood = req.body;
-      const food = {
-        $set: {
-          foodName: updatedFood.foodName,
-          imageUrl: updatedFood.imageUrl,
-          quantity: updatedFood.quantity,
-          location: updatedFood.location,
-          expireDate: updatedFood.expireDate,
-          notes: updatedFood.notes,
-        },
-      };
-      const result = await foodCollection.updateOne(filter, food, options);
+
+    // update cart product quantity
+    app.patch("/update-cart-quantity", async (req, res) => {
+      const { email, productId, quantity } = req.body;
+
+      const result = await userCartCollection.updateOne(
+        { email, "cartlist.productId": productId },
+        { $set: { "cartlist.$.quantity": quantity } }
+      );
       res.send(result);
     });
-    // Delete a food
-    app.delete("/foods/:id", async (req, res) => {
-      const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
-      const result = await foodCollection.deleteOne(query);
+
+    // delete product from cartlist
+    app.patch("/delete-cart-product", async (req, res) => {
+      const { email, productId } = req.body;
+
+      const result = await userCartCollection.updateOne(
+        { email },
+        { $pull: { cartlist: { productId } } }
+      );
       res.send(result);
     });
+
+    // ------------- ADMIN APIS -------------------
+
+    // Add a new product
+    app.post("/add-product", async (req, res) => {
+      const newProduct = req.body;
+      const result = await productsCollection.insertOne(newProduct);
+      res.send(result);
+    });
+
+
+
+
+
+
+
+    
 
     // Move a food to Requested_foods
     app.post("/requestedFoods", async (req, res) => {
@@ -129,30 +158,16 @@ async function run() {
       const result = await requestedFoodCollection.insertOne(requestedFood);
       res.send(result);
     });
-
-    // Get Specific user Requested foods
-    app.get("/requestedFoods", async (req, res) => {
-      const email = req.query.email;
-      const query = {
-        userEmail: email,
-      };
-      const result = await requestedFoodCollection.find(query).toArray();
-
-      res.send(result);
-    });
   } finally {
-    // Ensures that the client will close when you finish/error
     // await client.close();
   }
 }
 run().catch(console.dir);
 
-// ....
-
 app.get("/", (req, res) => {
-  res.send("Food is falling from the sky");
+  res.send("Products falling from the sky");
 });
 
 app.listen(port, () => {
-  console.log(`Job is waiting at ${port}`);
+  console.log(`Products are waiting at ${port}`);
 });
