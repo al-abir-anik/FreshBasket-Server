@@ -19,37 +19,35 @@ const client = new MongoClient(uri, {
 });
 async function run() {
   try {
-    await client.connect();
-    await client.db("admin").command({ ping: 1 });
+    // await client.connect();
+    // await client.db("admin").command({ ping: 1 });
 
     // Collection Names
     const productsCollection = client
       .db("FreshBasket_DB")
       .collection("all-products");
-    const userCartCollection = client
-      .db("FreshBasket_DB")
-      .collection("user-cartlist");
+    const usersCollection = client.db("FreshBasket_DB").collection("users");
 
     // ------------- PRODUCT APIS -------------------
 
     // Load all products
     app.get("/all-products", async (req, res) => {
-      const sort = req.query.sort;
       const search = req.query.search;
-      let sortQuery = {};
+      const category = req.query.category;
       let query = {};
-      if (sort == "true") {
-        sortQuery = { expireDate: -1 };
-      }
+
       if (search) {
-        query.foodName = { $regex: search, $options: "i" };
+        query.name = { $regex: search, $options: "i" };
       }
-      const cursor = productsCollection.find(query).sort(sortQuery);
-      const result = await cursor.toArray();
+      if (category && category !== "undefined") {
+        query.category = new RegExp(`^${category}$`, "i"); // case-insensitive match
+      }
+
+      const result = await productsCollection.find(query).toArray();
       res.send(result);
     });
 
-    // Get specific product
+    // load specific product
     app.get("/product/:id", async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
@@ -57,23 +55,84 @@ async function run() {
       res.send(result);
     });
 
-    // ------------- USER APIS -------------------
-
-    // post new user cart doc
-    app.post("/new-user", async (req, res) => {
-      const user = req.body;
-      const result = await userCartCollection.insertOne(user);
+    // Load best seller products
+    app.get("/best-seller", async (req, res) => {
+      const cursor = productsCollection.find({}).sort({ rating: -1 }).limit(10);
+      const result = await cursor.toArray();
       res.send(result);
     });
 
-    // load specific user cartlist
-    app.get("/user-cartlist", async (req, res) => {
+    // load related products by category
+    app.get("/related-products", async (req, res) => {
+      const id = req.query.id;
+      const product = await productsCollection.findOne({
+        _id: new ObjectId(id),
+      });
+
+      const relatedProducts = await productsCollection
+        .find({
+          category: product.category,
+          _id: { $ne: new ObjectId(id) },
+        })
+        .limit(5)
+        .toArray();
+
+      res.send(relatedProducts);
+    });
+
+    // ------------- USER APIS -------------------
+
+    // post new user doc
+    app.post("/new-user", async (req, res) => {
+      const user = req.body;
+      const result = await usersCollection.insertOne(user);
+      res.send(result);
+    });
+
+    // load current user doc
+    app.get("/user-doc", async (req, res) => {
       const email = req.query.email;
-      const userDoc = await userCartCollection.findOne({ email });
+      const userDoc = await usersCollection.findOne({ email });
+
+      if (!userDoc) {
+        return res.status(404).send({ message: "User not found" });
+      }
+
+      const { phoneNumber, address } = userDoc;
+      res.send({ phoneNumber, address });
+    });
+
+    // update current user info
+    app.patch("/update-user-info", async (req, res) => {
+      const { email, phoneNumber, address } = req.body;
+      const userDoc = await usersCollection.findOne({ email });
+
+      if (!userDoc) {
+        return res.status(404).send({ message: "User not found" });
+      }
+      const samePhone = userDoc.phoneNumber === phoneNumber;
+      const sameAddress = userDoc.address === address;
+      if (samePhone && sameAddress) {
+        return res.status(400).send({ message: "No changes detected" });
+      }
+
+      const result = await usersCollection.updateOne(
+        { email },
+        {
+          $set: { phoneNumber, address },
+        }
+      );
+      res.send(result);
+    });
+
+    // load user cart-items with details
+    app.get("/user-cart-items", async (req, res) => {
+      const email = req.query.email;
+      const userDoc = await usersCollection.findOne({ email });
       const productIds =
-        userDoc.cartlist.map((p) => new ObjectId(p.productId)) || [];
+        userDoc.cartItems.map((p) => new ObjectId(p.productId)) || [];
       const productQuantity = new Map(
-        userDoc.cartlist.map((item) => [item.productId, item.quantity])
+        userDoc.cartItems.map((item) => [item.productId, item.quantity])
       );
 
       const products = await productsCollection
@@ -90,10 +149,17 @@ async function run() {
     // add product in user cartlist
     app.post("/add-to-cart", async (req, res) => {
       const { email, productId, quantity = 1 } = req.body;
+      const product = await productsCollection.findOne({
+        _id: new ObjectId(productId),
+      });
 
-      const result = await userCartCollection.updateOne(
+      if (product.inStock === false) {
+        return res.send({ error: "Out of stock" });
+      }
+
+      const result = await usersCollection.updateOne(
         { email },
-        { $push: { cartlist: { productId, quantity } } }
+        { $push: { cartItems: { productId, quantity } } }
       );
       res.send(result);
     });
@@ -102,9 +168,9 @@ async function run() {
     app.patch("/update-cart-quantity", async (req, res) => {
       const { email, productId, quantity } = req.body;
 
-      const result = await userCartCollection.updateOne(
-        { email, "cartlist.productId": productId },
-        { $set: { "cartlist.$.quantity": quantity } }
+      const result = await usersCollection.updateOne(
+        { email, "cartItems.productId": productId },
+        { $set: { "cartItems.$.quantity": quantity } }
       );
       res.send(result);
     });
@@ -113,11 +179,77 @@ async function run() {
     app.patch("/delete-cart-product", async (req, res) => {
       const { email, productId } = req.body;
 
-      const result = await userCartCollection.updateOne(
+      const result = await usersCollection.updateOne(
         { email },
-        { $pull: { cartlist: { productId } } }
+        { $pull: { cartItems: { productId } } }
       );
       res.send(result);
+    });
+
+    // Place an Order
+    app.post("/place-order", async (req, res) => {
+      const { email, phoneNumber, address, paymentMethod, totalPrice } =
+        req.body;
+
+      try {
+        const userDoc = await usersCollection.findOne({ email });
+        // if (!userDoc || !userDoc.cartItems || userDoc.cartItems.length === 0) {
+        //   return res.send({ success: false, message: "Cart is empty" });
+        // }
+        const cartItems = userDoc.cartItems;
+        const order = {
+          orderId: new Date().getTime().toString(),
+          items: cartItems,
+          totalPrice,
+          orderDate: new Date(),
+          status: "pending",
+          paymentMethod,
+          shippingAddress: address,
+          phoneNumber,
+          userEmail: email,
+        };
+
+        const result = await usersCollection.updateOne(
+          { email },
+          {
+            $push: { orders: order },
+            $set: { cartItems: [] },
+          }
+        );
+        res.send({ success: true, result });
+      } catch (error) {
+        console.error("Order error:", error);
+        res.status(500).send({ success: false, message: "Server error" });
+      }
+    });
+
+    // load user orders
+    app.get("/user-orders", async (req, res) => {
+      const email = req.query.email;
+      const userDoc = await usersCollection.findOne({ email });
+      const { orders } = userDoc;
+      const ordersWithProdDetails = [];
+
+      for (const order of orders) {
+        const enrichedItems = await Promise.all(
+          order.items.map(async (item) => {
+            const product = await productsCollection.findOne({
+              _id: new ObjectId(item.productId),
+            });
+
+            return {
+              product,
+              quantity: item.quantity,
+            };
+          })
+        );
+        ordersWithProdDetails.push({
+          ...order,
+          items: enrichedItems,
+        });
+      }
+
+      res.send(ordersWithProdDetails);
     });
 
     // ------------- ADMIN APIS -------------------
@@ -129,13 +261,48 @@ async function run() {
       res.send(result);
     });
 
+    // change stock status
+    app.patch("/change-stock", async (req, res) => {
+      const { productId, inStock } = req.body;
+      const filter = { _id: new ObjectId(productId) };
+      const updateDoc = { $set: { inStock } };
 
+      const result = await productsCollection.updateOne(filter, updateDoc);
+      res.send(result);
+    });
 
+    // load all orders
+    app.get("/all-orders", async (req, res) => {
+      const users = await usersCollection.find({}).toArray();
+      const allOrders = [];
 
+      for (const user of users) {
+        const userOrders = user.orders || [];
 
+        for (const order of userOrders) {
+          const enrichedItems = await Promise.all(
+            order.items.map(async (item) => {
+              const product = await productsCollection.findOne({
+                _id: new ObjectId(item.productId),
+              });
 
+              return {
+                productName: product?.name,
+                productId: item.productId,
+                quantity: item.quantity,
+              };
+            })
+          );
 
-    
+          allOrders.push({
+            ...order,
+            items: enrichedItems,
+          });
+        }
+      }
+
+      res.send(allOrders);
+    });
 
     // Move a food to Requested_foods
     app.post("/requestedFoods", async (req, res) => {
